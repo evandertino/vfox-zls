@@ -1,256 +1,205 @@
-# mise tool plugin template
+# vfox-zls
 
-This is a GitHub template for building a mise tool plugin using the vfox-style Lua hooks architecture.
+A [mise](https://mise.jdx.dev) tool plugin for [ZLS](https://github.com/zigtools/zls) — the Zig Language Server.
 
-## Using this template
+This plugin supersedes the default aqua registry entry for ZLS, which only exposes stable releases. It provides access to every build published by the zigtools team, including a rolling `master` alias that automatically resolves to the ZLS build compatible with your current Zig nightly.
 
-### Option 1: Use GitHub's template feature (recommended)
-1. Click "Use this template" button on GitHub
-2. Name your repository (e.g., `mise-mytool`)
-3. Clone your new repository
-4. Follow the setup instructions below
+## Features
 
-### Option 2: Clone and modify
+- All stable ZLS releases from [builds.zigtools.org](https://builds.zigtools.org)
+- Rolling `master` version that tracks the ZLS build compatible with the current Zig nightly
+- Community mirror rotation when resolving the Zig nightly version — distributes load across the mirror network and falls back to `ziglang.org` if all mirrors fail
+- SHA256 checksum verification for every download
+- `mise upgrade` support for `master` — the plugin sets a platform-specific checksum so mise can detect when a new compatible build is available
+- Graceful degradation — `mise ls-remote zls` never crashes, even when network requests fail
+
+## Requirements
+
+- [mise](https://mise.jdx.dev) v0.2.0 or later
+
+## Installation
+
 ```bash
-git clone https://github.com/jdx/mise-tool-plugin-template mise-mytool
-cd mise-mytool
-rm -rf .git
-git init
+mise plugin install zls https://github.com/evandertino/vfox-zls
 ```
 
-## Setup Instructions
+## Usage
 
-### 1. Replace placeholders
+### List all available versions
 
-Search and replace these placeholders throughout the project:
-- `<TOOL>` → your tool name (e.g., `semver`)
-- `<GITHUB_USER>` → your GitHub username or organization
-- `<GITHUB_REPO>` → the upstream tool's GitHub repository name
-
-Files to update:
-- `metadata.lua` - Update name, description, author, updateUrl
-- `hooks/*.lua` - Replace placeholders in all hook files
-- `mise-tasks/test` - Update test version and command
-- `README.md` - Update this file with your tool's information
-
-### 2. Implement the hooks
-
-#### `hooks/available.lua`
-Returns a list of available versions. Examples:
-
-```lua
--- Example 1: GitHub releases API
-local repo_url = "https://api.github.com/repos/owner/repo/releases"
-
--- Example 2: GitHub tags API
-local repo_url = "https://api.github.com/repos/owner/repo/tags"
-
--- Example 3: Custom version listing
--- Parse from a website, API, or other source
-```
-
-#### `hooks/pre_install.lua`
-Returns download information for a specific version:
-
-```lua
--- Example 1: Simple binary download
-local url = "https://github.com/owner/repo/releases/download/v" .. version .. "/tool-linux-amd64"
-
--- Example 2: Archive download
-local url = "https://github.com/owner/repo/releases/download/v" .. version .. "/tool-" .. version .. "-" .. platform .. ".tar.gz"
-
--- Example 3: Raw file from repository
-local url = "https://raw.githubusercontent.com/owner/repo/" .. version .. "/bin/tool"
-```
-
-#### `hooks/post_install.lua`
-Handles post-installation setup:
-
-```lua
--- Example 1: Single binary (chmod and move to bin/)
-os.execute("mkdir -p " .. path .. "/bin")
-os.execute("mv " .. path .. "/tool " .. path .. "/bin/tool")
-os.execute("chmod +x " .. path .. "/bin/tool")
-
--- Example 2: Extract from archive (handled automatically by mise)
--- Usually no action needed if pre_install returns an archive
-
--- Example 3: Multiple binaries
--- Move all executables to bin/ directory
-```
-
-### 3. Configure environment variables
-
-Update `hooks/env_keys.lua` if your tool needs special environment variables:
-
-```lua
--- Basic PATH setup (minimum required)
-return {
-    {
-        key = "PATH",
-        value = mainPath .. "/bin"
-    }
-}
-
--- Advanced example with tool-specific vars
-return {
-    {
-        key = "TOOL_HOME",
-        value = mainPath
-    },
-    {
-        key = "PATH",
-        value = mainPath .. "/bin"
-    },
-    {
-        key = "LD_LIBRARY_PATH",
-        value = mainPath .. "/lib"
-    }
-}
-```
-
-## Development Workflow
-
-### Setting up development environment
-
-1. Install pre-commit hooks (optional but recommended):
 ```bash
-hk install
+mise ls-remote zls
 ```
 
-This sets up automatic linting and formatting on git commits.
+This lists every stable ZLS release sorted oldest-first, plus the `master` alias at the bottom. The note on each stable release shows its publish date. The note on `master` shows the current Zig nightly version it resolves to.
 
-### Local Testing
+### Install a stable version
 
-1. Link your plugin for development:
 ```bash
-mise plugin link --force <TOOL> .
+mise use zls@0.14.0
+mise use zls@0.13.0
 ```
 
-2. Run tests:
+### Install the nightly-compatible build
+
 ```bash
-mise run test
+mise use zls@master
 ```
 
-3. Run linting:
+This resolves the current Zig nightly version via community mirrors, queries `releases.zigtools.org` for the compatible ZLS build, and installs it. The installed version is recorded as the actual ZLS dev version string (e.g. `0.16.0-dev.263+fa650ca`), not the string `master`.
+
+### Upgrade master
+
+```bash
+mise upgrade zls
+```
+
+Because `master` is declared as a rolling release with a platform-specific checksum, mise can detect when a new ZLS nightly build has been published for your platform and will upgrade automatically.
+
+## Platform Support
+
+| OS | Architecture | Platform Key |
+|---|---|---|
+| Linux | x86 (32-bit) | `x86-linux` |
+| Linux | x86_64 | `x86_64-linux` |
+| Linux | ARM (32-bit) | `arm-linux` |
+| Linux | aarch64 | `aarch64-linux` |
+| Linux | RISC-V 64 | `riscv64-linux` |
+| macOS | x86_64 | `x86_64-macos` |
+| macOS | aarch64 (Apple Silicon) | `aarch64-macos` |
+| Windows | x86 (32-bit) | `x86-windows` |
+| Windows | x86_64 | `x86_64-windows` |
+| Windows | aarch64 | `aarch64-windows` |
+
+## How It Works
+
+### Version Sources
+
+| Source | Purpose |
+|---|---|
+| `https://builds.zigtools.org/index.json` | Index of all stable ZLS releases |
+| `https://ziglang.org/download/community-mirrors.txt` | List of community mirrors |
+| `https://ziglang.org/download/index.json` | Canonical fallback for Zig nightly version |
+| `https://releases.zigtools.org/v1/zls/select-version` | Resolve compatible ZLS build for a given Zig nightly |
+
+### Stable Versions
+
+The `Available` hook fetches `builds.zigtools.org/index.json`, extracts all version keys, sorts them using semver comparison, and returns them as a flat list. The `PreInstall` hook re-fetches the same index, looks up the requested version, and returns the platform-specific tarball URL and SHA256 checksum.
+
+### Rolling `master`
+
+Installing `master` involves three steps:
+
+1. **Resolve Zig nightly** — fetch `community-mirrors.txt`, shuffle the list using Fisher-Yates, try each mirror's `index.json` in random order until one succeeds, then fall back to `ziglang.org/download/index.json` if all mirrors fail. This produces a version string like `0.16.0-dev.3153+d6f43caad`.
+
+2. **Resolve compatible ZLS build** — call `releases.zigtools.org/v1/zls/select-version?zig_version=<nightly>&compatibility=only-runtime`. The `zig_version` parameter is percent-encoded to safely handle the `+` character in Zig nightly version strings. The API returns a response shaped like a `builds.zigtools.org` index entry, containing per-platform tarballs and checksums.
+
+3. **Error handling for code 2** — when Zig nightly is ahead of ZLS (a common transient state on `main`), the API returns `{"code": 2, "message": "Zig X has no compatible ZLS build (yet)"}`. The plugin surfaces this message verbatim and aborts installation cleanly.
+
+The `checksum` field on the `master` version entry is populated with the SHA256 of the platform-specific tarball from step 2. This is what enables `mise upgrade` to detect changes.
+
+### Caching
+
+mise automatically caches the return value of the `Available` hook and refreshes it daily. The plugin does not implement any manual caching on top of this.
+
+## Project Structure
+
+```
+vfox-zls/
+├── metadata.lua              # Plugin name, version, author, update URL
+├── hooks/
+│   ├── available.lua         # Powers `mise ls-remote zls`
+│   ├── pre_install.lua       # Resolves download URL and checksum for a version
+│   ├── post_install.lua      # Moves binary into bin/ and verifies it runs
+│   └── env_keys.lua          # Adds bin/ to PATH
+├── lib/
+│   └── std/
+│       ├── builtin.lua       # Platform detection (RUNTIME → ZLS platform key)
+│       ├── format.lua        # Human-readable byte sizes
+│       ├── zig.lua           # Zig nightly version resolution via mirrors
+│       ├── zls.lua           # ZLS index and select-version API calls
+│       └── net/
+│           └── http.lua      # HTTP GET wrapper, URL encoding, query builder
+└── types/
+    └── mise-plugin.lua       # LuaCATS type definitions for IDE support
+```
+
+### `lib/std/builtin.lua`
+
+Builds a static platform map from `RUNTIME.osType` and `RUNTIME.archType` (the globals injected by mise into every hook) to the ZLS platform key format (`<arch>-<os>`). The map is computed once at module load time. Also exports `is_platform_supported(platform)` for filtering the platform list from an index entry.
+
+### `lib/std/zig.lua`
+
+Contains `get_nightly_version()` which implements the mirror rotation strategy. The mirror list is fetched from `ziglang.org`, shuffled in-place with Fisher-Yates seeded by `os.time()`, and tried in order. Each mirror's index.json URL is constructed by appending `/index.json` to the mirror base URL (stripping any trailing slash). The nightly version is extracted from `data["master"]["version"]`.
+
+### `lib/std/zls.lua`
+
+Contains two functions:
+- `get_stable_releases()` — fetches and decodes `builds.zigtools.org/index.json`
+- `get_master_release(zig_version)` — calls the `select-version` API and returns `(data, nil)` on success or `(nil, error_message)` on any failure, including API-level error codes
+
+### `lib/std/net/http.lua`
+
+A thin wrapper around mise's built-in `http` module. Provides `M.get(url)` returning `(body, nil)` or `(nil, err)`, `M.percent_encode(value)` for [RFC 3986](https://www.rfc-editor.org/rfc/rfc3986.html) unreserved character encoding, and `M.build_url(base, params)` for constructing query strings with per-value encoding.
+
+**Important:** the built-in `http.get` is asynchronous and uses Lua coroutines internally. It must never be wrapped in `pcall` — doing so blocks coroutine yields and causes all HTTP requests to fail with "attempt to yield across metamethod/C-call boundary".
+
+## Development
+
+### Setup
+
+```bash
+mise install
+```
+
+This installs all development tools declared in `mise.toml`: `lua`, `lua-language-server`, `stylua`, `hk`, `actionlint`, and `pkl`.
+
+### Format
+
+```bash
+mise run format
+```
+
+Runs `stylua` over `metadata.lua` and all files in `hooks/`.
+
+### Lint
+
 ```bash
 mise run lint
 ```
 
-4. Run full CI suite:
+Runs `hk check` which covers Lua linting and GitHub Actions validation.
+
+### Test
+
 ```bash
-mise run ci
+mise run test
 ```
 
-### Code Quality
+Runs the integration test in `mise-tasks/test` against the locally linked plugin.
 
-This template uses [hk](https://hk.jdx.dev) for modern linting and pre-commit hooks:
+### Local development
 
-- **Automatic formatting**: `stylua` formats Lua code
-- **Static analysis**: `luacheck` catches Lua issues
-- **GitHub Actions linting**: `actionlint` validates workflows
-- **Pre-commit hooks**: Runs all checks automatically on git commit
-
-Manual commands:
 ```bash
-hk check      # Run all linters (same as mise run lint)
-hk fix        # Run linters and auto-fix issues
+# Link the plugin from your working directory
+mise plugin link zls /path/to/vfox-zls
+
+# Test ls-remote
+mise ls-remote zls
+
+# Test stable install
+mise install zls@0.14.0
+
+# Test master install
+mise install zls@master
 ```
 
-### Debugging
+## Acknowledgements
 
-Enable debug output:
-```bash
-MISE_DEBUG=1 mise install <TOOL>@latest
-```
-
-## Files
-
-- `metadata.lua` – Plugin metadata and configuration
-- `hooks/available.lua` – Returns available versions from upstream
-- `hooks/pre_install.lua` – Returns artifact URL for a given version
-- `hooks/post_install.lua` – Post-installation setup (permissions, moving files)
-- `hooks/env_keys.lua` – Environment variables to export (PATH, etc.)
-- `.github/workflows/ci.yml` – GitHub Actions CI/CD pipeline
-- `mise.toml` – Development tools and configuration
-- `mise-tasks/` – Task scripts for testing
-- `hk.pkl` – Modern linting and pre-commit hook configuration
-- `.luacheckrc` – Lua linting configuration
-- `stylua.toml` – Lua formatting configuration
-
-## Common Patterns
-
-### Platform Detection
-```lua
-local function get_platform()
-    -- RUNTIME object is provided by mise/vfox
-    -- RUNTIME.osType: "Windows", "Linux", "Darwin"
-    -- RUNTIME.archType: "amd64", "386", "arm64", etc.
-
-    local os_name = RUNTIME.osType:lower()
-    local arch = RUNTIME.archType
-
-    -- Map to your tool's platform naming convention
-    local platform_map = {
-        ["darwin"] = {
-            ["amd64"] = "darwin-amd64",
-            ["arm64"] = "darwin-arm64",
-        },
-        ["linux"] = {
-            ["amd64"] = "linux-amd64",
-            ["arm64"] = "linux-arm64",
-        },
-        ["windows"] = {
-            ["amd64"] = "windows-amd64",
-            ["386"] = "windows-386",
-        }
-    }
-
-    local os_map = platform_map[os_name]
-    if os_map then
-        return os_map[arch] or "linux-amd64"
-    end
-    return "linux-amd64"  -- fallback
-end
-```
-
-### Checksum Verification
-```lua
--- In pre_install.lua, return sha256
-return {
-    version = version,
-    url = url,
-    sha256 = "abc123...",  -- Optional but recommended
-}
-```
-
-### Error Handling
-```lua
-if err ~= nil then
-    error("Failed to fetch versions: " .. err)
-end
-
-if resp.status_code ~= 200 then
-    error("API returned status " .. resp.status_code)
-end
-```
-
-## Documentation
-
-Refer to the mise docs for detailed information:
-
-- [Tool plugin development](https://mise.jdx.dev/tool-plugin-development.html) - Complete guide to plugin development
-- [Lua modules reference](https://mise.jdx.dev/plugin-lua-modules.html) - Available Lua modules and functions
-- [Plugin publishing](https://mise.jdx.dev/plugin-publishing.html) - How to publish your plugin
-- [mise-plugins organization](https://github.com/mise-plugins) - Community plugins repository
-
-## Publishing
-
-1. Ensure all tests pass: `mise run ci`
-2. Create a GitHub repository for your plugin
-3. Push your code
-4. (Optional) Request to transfer to [mise-plugins](https://github.com/mise-plugins) organization
-5. Add to the [mise registry](https://github.com/jdx/mise/blob/main/registry.toml) via PR
+- [zigtools/zls](https://github.com/zigtools/zls) — the Zig Language Server
+- [zigtools/release-worker](https://github.com/zigtools/release-worker) — the API powering nightly ZLS resolution
+- [mise-en-place](https://mise.jdx.dev) — the runtime manager this plugin is built for
+- The Zig community mirror operators listed at [ziglang.org/download/community-mirrors](https://ziglang.org/download/community-mirrors/)
 
 ## License
 

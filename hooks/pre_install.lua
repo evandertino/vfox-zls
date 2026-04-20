@@ -3,76 +3,119 @@
 --- @param ctx {version: string, runtimeVersion: string} Context
 --- @return table Version and download information
 function PLUGIN:PreInstall(ctx)
+    local builtin = require("std.builtin")
+    if not builtin.platform then
+        error("Unsupported platform: " .. tostring(RUNTIME.osType) .. "/" .. tostring(RUNTIME.archType))
+    end
+
+    -- master: resolve against current Zig nightly via community mirrors,
+    -- then download from releases.zigtools.org.
     local version = ctx.version
-    -- ctx.runtimeVersion contains the full version string if needed
+    local zls = require("std.zls")
+    local format = require("std.format")
+    if version == "master" then
+        local zig = require("std.zig")
+        local zig_nightly_version, err = zig.get_nightly_version()
+        if not zig_nightly_version then
+            error(
+                "[PreInstall] Could not determine Zig nightly version. Check your internet connection. Details: "
+                    .. tostring(err)
+            )
+        end
 
-    -- Example 1: Simple binary download
-    -- local url = "https://github.com/<GITHUB_USER>/<GITHUB_REPO>/releases/download/v" .. version .. "/<TOOL>-linux-amd64"
+        local master_release, err = zls.get_master_release(zig_nightly_version)
+        if not master_release then
+            error(err or "Failed to resolve ZLS master build")
+        end
 
-    -- Example 2: Platform-specific binary
-    -- local platform = get_platform() -- Uncomment the helper function below
-    -- local url = "https://github.com/<GITHUB_USER>/<GITHUB_REPO>/releases/download/v" .. version .. "/<TOOL>-" .. platform
+        local master_artifact = master_release[builtin.platform]
+        if not master_artifact then
+            error(
+                "No ZLS master build available for platform: "
+                    .. builtin.platform
+                    .. " (Zig nightly "
+                    .. zig_nightly_version
+                    .. ")"
+            )
+        end
 
-    -- Example 3: Archive (tar.gz, zip) - mise will extract automatically
-    -- local url = "https://github.com/<GITHUB_USER>/<GITHUB_REPO>/releases/download/v" .. version .. "/<TOOL>-" .. version .. "-linux-amd64.tar.gz"
+        local tarball_url = master_artifact.tarball or nil
+        if not tarball_url then
+            error("ZLS master release for Zig nightly " .. zig_nightly_version .. " is missing a download URL")
+        end
 
-    -- Example 4: Raw file from repository
-    -- local url = "https://raw.githubusercontent.com/<GITHUB_USER>/<GITHUB_REPO>/" .. version .. "/bin/<TOOL>"
+        local artifact_size = master_artifact.size or nil
 
-    -- Replace with your actual download URL pattern
-    local url = "https://example.com/<TOOL>/releases/download/" .. version .. "/<TOOL>"
+        return {
+            version = master_release.version,
+            url = tarball_url,
+            sha256 = master_artifact.shasum,
+            note = "Downloading ZLS "
+                .. master_release.version
+                .. " for Zig nightly "
+                .. zig_nightly_version
+                .. (artifact_size and " (" .. format.bytes(artifact_size) .. ")" or ""),
+        }
+    end
 
-    -- Optional: Fetch checksum for verification
-    -- local sha256 = fetch_checksum(version) -- Implement if checksums are available
+    -- Stable releases: look up builds.zigtools.org/index.json
+    local stable_releases = zls.get_stable_releases()
+    if not stable_releases then
+        error("Failed to fetch available stable releases for pre-installation")
+    end
+
+    local stable_release = stable_releases[version]
+    if not stable_release then
+        error("Requested stable release version not found: " .. version)
+    end
+
+    local release_date = stable_release.date or nil
+    local supported_platforms = {}
+    for platform, _ in pairs(stable_release) do
+        if builtin.is_platform_supported(platform) then
+            table.insert(supported_platforms, platform)
+        end
+    end
+
+    if #supported_platforms == 0 then
+        error("No supported platforms found for version: " .. version)
+    end
+
+    local stable_artifact = stable_release[builtin.platform]
+    if not stable_artifact then
+        error(
+            "Unable to get a stable release version: "
+                .. version
+                .. " available for your platform: "
+                .. builtin.platform
+                .. ". Supported platforms for this version are: "
+                .. table.concat(supported_platforms, ", ")
+        )
+    end
+
+    local tarball_url = stable_artifact.tarball or nil
+    if not tarball_url then
+        error("No download URL found for version: " .. version .. " on platform: " .. builtin.platform)
+    end
+
+    local artifact_size = stable_artifact.size or nil
 
     return {
         version = version,
-        url = url,
-        -- sha256 = sha256, -- Optional but recommended for security
-        note = "Downloading <TOOL> " .. version,
-        -- addition = { -- Optional: download additional components
-        --     {
-        --         name = "component",
-        --         url = "https://example.com/component.tar.gz"
-        --     }
-        -- }
+        url = tarball_url,
+        sha256 = stable_artifact.shasum or nil,
+        note = (
+            "Downloading zls "
+            .. version
+            .. (release_date and " released on " .. release_date or "")
+            .. (artifact_size and " of size (" .. format.bytes(artifact_size) .. ")" or "")
+        ),
+        -- NOTE: This doesnt seem to work
+        addition = {
+            {
+                name = "minisig",
+                url = tarball_url .. ".minisig",
+            },
+        },
     }
 end
-
--- Helper function for platform detection (uncomment and modify as needed)
---[[
-local function get_platform()
-    -- RUNTIME object is provided by mise/vfox
-    -- RUNTIME.osType: "Windows", "Linux", "Darwin"
-    -- RUNTIME.archType: "amd64", "386", "arm64", etc.
-
-    local os_name = RUNTIME.osType:lower()
-    local arch = RUNTIME.archType
-
-    -- Map to your tool's platform naming convention
-    -- Adjust these mappings based on how your tool names its releases
-    local platform_map = {
-        ["darwin"] = {
-            ["amd64"] = "darwin-amd64",
-            ["arm64"] = "darwin-arm64",
-        },
-        ["linux"] = {
-            ["amd64"] = "linux-amd64",
-            ["arm64"] = "linux-arm64",
-            ["386"] = "linux-386",
-        },
-        ["windows"] = {
-            ["amd64"] = "windows-amd64",
-            ["386"] = "windows-386",
-        }
-    }
-
-    local os_map = platform_map[os_name]
-    if os_map then
-        return os_map[arch] or "linux-amd64"  -- fallback
-    end
-
-    -- Default fallback
-    return "linux-amd64"
-end
---]]
