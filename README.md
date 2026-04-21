@@ -2,7 +2,7 @@
 
 A [mise](https://mise.jdx.dev) tool plugin for [ZLS](https://github.com/zigtools/zls) — the Zig Language Server.
 
-This plugin supersedes the default aqua registry entry for ZLS, which only exposes stable releases. It provides access to every build published by the zigtools team, including a rolling `master` alias that automatically resolves to the ZLS build compatible with your current Zig nightly.
+This plugin supersedes the default aqua registry entry for ZLS, which only exposes stable releases. It provides access to every build published by the [zigtools](https://zigtools.org/zls/install/) team, including a rolling `master` alias that automatically resolves to the ZLS build compatible with your current Zig nightly.
 
 ## Features
 
@@ -116,6 +116,7 @@ vfox-zls/
 ├── lib/
 │   └── std/
 │       ├── builtin.lua       # Platform detection (RUNTIME → ZLS platform key)
+│       ├── cache.lua         # Disk-backed caching for network requests
 │       ├── format.lua        # Human-readable byte sizes
 │       ├── zig.lua           # Zig nightly version resolution via mirrors
 │       ├── zls.lua           # ZLS index and select-version API calls
@@ -128,6 +129,10 @@ vfox-zls/
 ### `lib/std/builtin.lua`
 
 Builds a static platform map from `RUNTIME.osType` and `RUNTIME.archType` (the globals injected by mise into every hook) to the ZLS platform key format (`<arch>-<os>`). The map is computed once at module load time. Also exports `is_platform_supported(platform)` for filtering the platform list from an index entry.
+
+### `lib/std/cache.lua`
+
+Disk-backed caching is implemented to reduce network load and improve responsiveness across repeated invocations. All network requests (Zig `nightly` versions, ZLS `stable` releases, and `master` releases) are cached for `24 hours` to avoid hammering external APIs. Cache files are stored as JSON envelopes in the system temp directory under `mise-zls-plugin/`, with each entry containing a `cached_at timestamp` and the `payload data`. Automatic invalidation ensures `freshness`: entries `expire` after `24 hours`, and domain-specific context (e.g., storing the Zig `nightly` version alongside `master` release `data`) allows invalidation when underlying `data` changes, preventing stale responses. Writes are `best-effort` and fail silently, ensuring the plugin remains functional even if caching is unavailable.
 
 ### `lib/std/zig.lua`
 
