@@ -2,12 +2,19 @@ local M = {}
 
 --- Performs an HTTP GET request and returns the response body or error.
 --- On success, returns (body, nil). On failure, returns (nil, error_message).
+---
+--- Uses http.try_get which is the non-raising variant of http.get. The standard
+--- http.get raises a Lua error on transport failures and, since it is async and
+--- uses coroutines internally, cannot be caught with pcall. try_get returns the
+--- error as a value instead, which is the correct pattern for this environment.
 --- @param url string The URL to fetch
 --- @return string|nil body HTTP response body on success, nil on failure
 --- @return nil|string err nil on success, error message on failure
 function M.get(url)
     local http = require("http")
-    local resp, err = http.get({ url = url })
+    local log = require("log")
+    log.debug("HTTP GET: " .. url)
+    local resp, err = http.try_get({ url = url })
     if err ~= nil then
         return nil, tostring(err)
     end

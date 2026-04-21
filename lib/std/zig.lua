@@ -45,6 +45,10 @@ end
 
 --- Fetches the current Zig nightly version string using community mirrors.
 ---
+--- Results are cached to disk for 24 hours to avoid hammering the mirror
+--- network on repeated invocations. The cache is stored under the system
+--- temp directory at mise-zls-plugin/zig_nightly_version.json.
+---
 --- Strategy:
 ---   1. Fetch community-mirrors.txt
 ---   2. Shuffle the mirror list randomly
@@ -71,6 +75,14 @@ end
 ---     the trailing slash if it exists.
 --- @return string|nil, string|nil The nightly version string, or nil on total failure
 function M.get_nightly_version()
+    local cache = require("std.cache")
+
+    -- Return cached value if still fresh
+    local entry = cache.get("zig_nightly_version")
+    if entry and type(entry.data) == "string" then
+        return entry.data, nil
+    end
+
     local http = require("std.net.http")
 
     -- Fetch and parse the community mirror list
@@ -88,14 +100,22 @@ function M.get_nightly_version()
 
     shuffle(mirrors)
 
+    local log = require("log")
+    -- Log list of mirrors to attempt.
+    log.debug("The following mirrors will be attempted in order: " .. table.concat(mirrors, ", "))
+
     -- Try each mirror in random order
     for _, base_url in ipairs(mirrors) do
         local url = base_url:gsub("/$", "") .. M.mirror_index_suffix
-        local body, _ = http.get(url)
-        local version = extract_nightly_version(body)
-        if version then
-            return version, nil
+        log.debug("Attempting mirror: " .. url)
+        local body, err = http.get(url)
+        local nightly_version = extract_nightly_version(body)
+        if nightly_version then
+            cache.set("zig_nightly_version", { data = nightly_version, timestamp = os.time() })
+            log.debug("Successfully fetched Zig nightly version from mirror: " .. url .. " Version: " .. nightly_version)
+            return nightly_version, nil
         end
+        log.debug("Failed to get nightly version from mirror: " .. url .. " Error: " .. tostring(err))
     end
 
     -- Fallback: canonical ziglang.org endpoint
@@ -111,6 +131,7 @@ function M.get_nightly_version()
         return nil, "all mirrors failed and canonical ziglang.org returned unexpected response"
     end
 
+    cache.set("zig_nightly_version", { data = nightly_version, timestamp = os.time() })
     return nightly_version, nil
 end
 

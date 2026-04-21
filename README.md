@@ -12,6 +12,7 @@ This plugin supersedes the default aqua registry entry for ZLS, which only expos
 - SHA256 checksum verification for every download
 - `mise upgrade` support for `master` — the plugin sets a platform-specific checksum so mise can detect when a new compatible build is available
 - Graceful degradation — `mise ls-remote zls` never crashes, even when network requests fail
+- Disk-backed caching for network requests (24-hour TTL) — reduces load on mirrors and zigtools.org, with automatic cache invalidation when Zig nightly updates
 
 ## Requirements
 
